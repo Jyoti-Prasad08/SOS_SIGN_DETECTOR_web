@@ -21,7 +21,7 @@
 
 ## 📌 The Problem & Solution
 
-People experiencing domestic abuse, coercive control, or harassment often cannot safely call emergency services, text, or speak aloud without alerting an abuser and escalating immediate danger. The **Signal for Help** (Canadian Women's Foundation, 2020) is a single-handed silent gesture created to discreetly communicate "I need help" on camera.
+Originally created by the **Canadian Women's Foundation** (2020) for individuals experiencing domestic violence or coercive control, the single-handed **Signal for Help** allows victims to discreetly communicate "I need help" on camera without speaking aloud or alerting an abuser. Whether used by domestic violence survivors, vulnerable seniors facing elder abuse, children in coercive households, stalking victims of any gender, or individuals experiencing workplace harassment — the same silent trigger works for anyone who cannot safely speak up.
 
 **SOS Sign** brings automated computer vision to this safety mechanism. Running 100% client-side inside WebAssembly, it continuously tracks hand gestures underneath an innocent video call interface without sending raw video streams over the network. When the full gesture sequence is detected, it captures a video snapshot, fetches geolocation coordinates, and broadcasts an emergency alert to a live responder dashboard over WebSockets.
 

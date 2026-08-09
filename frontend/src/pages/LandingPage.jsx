@@ -17,7 +17,7 @@ export default function LandingPage() {
         </h1>
 
         <p className="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto leading-relaxed">
-          People experiencing domestic violence, coercive control, or harassment often cannot safely speak or call emergency services. <strong className="text-slate-200">SOS Sign</strong> silently recognizes the internationally recognized "Signal for Help" gesture via webcam and dispatches an emergency alert.
+          Originally created by the Canadian Women's Foundation to help domestic violence survivors discreetly call for help on camera, <strong className="text-slate-200">SOS Sign</strong> silently detects the "Signal for Help" gesture via webcam and dispatches an emergency alert. The same silent trigger works for anyone who cannot safely speak up — including survivors of coercive control, elder abuse, child endangerment, stalking, or workplace harassment.
         </p>
 
         {/* Primary CTA Button */}
