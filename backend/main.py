@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,10 +26,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-Memory Databases
-alerts_db: List[dict] = []
+# Seed Historical Data for Live Demo Presentation
+now_utc = datetime.now(timezone.utc)
+
+alerts_db: List[dict] = [
+    {
+        "id": "demo-alert-001",
+        "name": "Jane Doe",
+        "latitude": 43.6532,
+        "longitude": -79.3832, # Toronto / Metro Location
+        "snapshot_base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        "timestamp": (now_utc - timedelta(minutes=14)).isoformat(),
+        "created_at": (now_utc - timedelta(minutes=14)).isoformat()
+    },
+    {
+        "id": "demo-alert-002",
+        "name": "Anonymous User",
+        "latitude": 40.7128,
+        "longitude": -74.0060, # New York Location
+        "snapshot_base64": None,
+        "timestamp": (now_utc - timedelta(hours=1, minutes=22)).isoformat(),
+        "created_at": (now_utc - timedelta(hours=1, minutes=22)).isoformat()
+    }
+]
+
 contacts_db: List[dict] = [
-    {"id": "1", "name": "Jane Doe", "phone_or_email": "+1 (555) 019-2831", "relationship": "Family Member"},
+    {"id": "1", "name": "Jane Doe (Sister)", "phone_or_email": "+1 (555) 019-2831", "relationship": "Family Member"},
     {"id": "2", "name": "Campus Security", "phone_or_email": "security@campus.edu", "relationship": "Security Desk"}
 ]
 
