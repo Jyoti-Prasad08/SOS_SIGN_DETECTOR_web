@@ -3,6 +3,8 @@ import { HandLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 import { SignalForHelpDetector } from '../lib/signalForHelpDetector';
 import { Camera, AlertCircle } from 'lucide-react';
 
+const BACKEND_URL = "http://127.0.0.1:8000";
+
 // Hand landmark connection pairs for overlay rendering
 const HAND_CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4],       // Thumb
@@ -15,7 +17,9 @@ const HAND_CONNECTIONS = [
 export default function GestureCamera({
   onStateChange,
   onTrigger,
+  onLoadTimeout,
   showDebugOverlay = false,
+  userName = "Anonymous User",
   className = ""
 }) {
   const videoRef = useRef(null);
@@ -39,6 +43,88 @@ export default function GestureCamera({
   const fpsFrameCounterRef = useRef(0);
   const lastFpsCalcTimeRef = useRef(performance.now());
   const currentFpsRef = useRef(0);
+
+  // 5-second load timeout check for safety fallback
+  useEffect(() => {
+    const timeoutTimer = setTimeout(() => {
+      if (isLoadingModel || !isCameraActive) {
+        console.warn("[GestureCamera] 5s timeout reached before camera/model ready. Triggering fallback callback.");
+        if (onLoadTimeout) {
+          onLoadTimeout();
+        }
+      }
+    }, 5000);
+
+    return () => clearTimeout(timeoutTimer);
+  }, [isLoadingModel, isCameraActive, onLoadTimeout]);
+
+  // Helper to capture current frame snapshot as Base64 JPEG
+  const captureSnapshotBase64 = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return null;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        return canvas.toDataURL('image/jpeg', 0.8);
+      }
+    } catch (e) {
+      console.warn("Snapshot capture error:", e);
+    }
+    return null;
+  }, []);
+
+  // Helper to dispatch alert payload to backend
+  const dispatchEmergencyAlert = useCallback(async (snapshotBase64) => {
+    let lat = null;
+    let lng = null;
+
+    if ('geolocation' in navigator) {
+      try {
+        const position = await new Promise((resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve(pos),
+            () => resolve(null),
+            { timeout: 3000 }
+          );
+        });
+        if (position) {
+          lat = position.coords.latitude;
+          lng = position.coords.longitude;
+        }
+      } catch (e) {
+        console.warn("Geolocation fetch failed or timed out:", e);
+      }
+    }
+
+    const payload = {
+      name: localStorage.getItem('sos_user_name') || userName || "Anonymous User",
+      latitude: lat,
+      longitude: lng,
+      snapshot_base64: snapshotBase64,
+      timestamp: new Date().toISOString()
+    };
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/alert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      console.log("[ALERT DISPATCHED TO BACKEND]", data);
+      return data;
+    } catch (err) {
+      console.error("Failed to post emergency alert to backend:", err);
+      return null;
+    }
+  }, [userName]);
 
   // Initialize MediaPipe HandLandmarker
   useEffect(() => {
@@ -75,6 +161,7 @@ export default function GestureCamera({
         if (isSubscribed) {
           setError("Failed to load gesture recognition model.");
           setIsLoadingModel(false);
+          if (onLoadTimeout) onLoadTimeout();
         }
       }
     }
@@ -88,7 +175,7 @@ export default function GestureCamera({
         landmarkerRef.current = null;
       }
     };
-  }, []);
+  }, [onLoadTimeout]);
 
   // Function to explicitly start camera stream
   const startCamera = useCallback(async () => {
@@ -109,10 +196,11 @@ export default function GestureCamera({
       }
     } catch (err) {
       console.error("Webcam access error:", err);
-      setError("Camera access denied or device unavailable. Please allow camera access in browser permissions.");
+      setError("Camera access denied or device unavailable.");
       setIsCameraActive(false);
+      if (onLoadTimeout) onLoadTimeout();
     }
-  }, []);
+  }, [onLoadTimeout]);
 
   // Auto-start camera when model finishes loading
   useEffect(() => {
@@ -153,12 +241,16 @@ export default function GestureCamera({
       const updateResult = detector.update(landmarks);
       const isTriggered = detector.isTriggered();
 
-      // Trigger Callback
+      // Trigger Handler: Capture snapshot & dispatch to POST /alert
       if (isTriggered && !wasTriggeredRef.current) {
+        const snapshot = captureSnapshotBase64();
+        dispatchEmergencyAlert(snapshot);
+
         if (onTrigger) {
           onTrigger({
             timestamp: new Date().toISOString(),
-            gesture: "Signal for Help"
+            gesture: "Signal for Help",
+            snapshot_base64: snapshot
           });
         }
       }
@@ -188,7 +280,6 @@ export default function GestureCamera({
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
           if (landmarks) {
-            // Draw Hand Connections
             ctx.strokeStyle = '#00ffcc';
             ctx.lineWidth = 3;
             HAND_CONNECTIONS.forEach(([i, j]) => {
@@ -202,7 +293,6 @@ export default function GestureCamera({
               }
             });
 
-            // Draw Landmark Points
             landmarks.forEach((lm, idx) => {
               ctx.beginPath();
               ctx.arc(lm.x * canvas.width, lm.y * canvas.height, idx === 4 || idx === 8 || idx === 12 || idx === 16 || idx === 20 ? 6 : 4, 0, 2 * Math.PI);
@@ -218,7 +308,7 @@ export default function GestureCamera({
     }
 
     animFrameId.current = requestAnimationFrame(processFrame);
-  }, [onStateChange, onTrigger, showDebugOverlay]);
+  }, [onStateChange, onTrigger, showDebugOverlay, captureSnapshotBase64, dispatchEmergencyAlert]);
 
   useEffect(() => {
     if (isCameraActive && !isLoadingModel) {
@@ -232,36 +322,24 @@ export default function GestureCamera({
   }, [isCameraActive, isLoadingModel, processFrame]);
 
   return (
-    <div className={`relative overflow-hidden rounded-xl bg-slate-950 flex items-center justify-center ${className}`}>
-      {/* Loading Overlay */}
-      {isLoadingModel && (
+    <div className={`relative overflow-hidden bg-slate-950 flex items-center justify-center ${className}`}>
+      {/* Loading Overlay (only shown if debug or camera not active) */}
+      {isLoadingModel && showDebugOverlay && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-950/90 backdrop-blur-sm text-slate-300 space-y-3 p-4 text-center">
           <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
           <span className="text-sm font-medium">Loading MediaPipe Gesture Model...</span>
         </div>
       )}
 
-      {/* Manual Start Camera / Permission Button Overlay */}
-      {!isLoadingModel && !isCameraActive && (
+      {/* Manual Start Camera Button if permission needed in Debug Overlay */}
+      {!isLoadingModel && !isCameraActive && showDebugOverlay && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900/90 p-6 text-center space-y-4">
           <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-full">
             <Camera className="w-8 h-8" />
           </div>
-          <div className="space-y-1">
-            <h4 className="font-semibold text-white">Camera Access Required</h4>
-            <p className="text-xs text-slate-400 max-w-sm">
-              Gesture detection runs 100% locally in your browser. No video is uploaded to any server.
-            </p>
-          </div>
-          {error && (
-            <div className="flex items-center space-x-2 text-rose-400 text-xs bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20 max-w-xs">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
           <button
             onClick={startCamera}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm rounded-lg transition shadow-lg shadow-indigo-600/30 flex items-center space-x-2 cursor-pointer"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm rounded-lg transition shadow-lg flex items-center space-x-2 cursor-pointer"
           >
             <Camera className="w-4 h-4" />
             <span>Enable Camera Access</span>
@@ -269,12 +347,12 @@ export default function GestureCamera({
         </div>
       )}
 
-      {/* Video Element */}
+      {/* Video Element — Always visible as video feed preview */}
       <video
         ref={videoRef}
         playsInline
         muted
-        className={`w-full h-full object-cover transform -scale-x-100 ${showDebugOverlay ? 'block' : 'opacity-0 pointer-events-none absolute'}`}
+        className="w-full h-full object-cover transform -scale-x-100 block"
       />
 
       {/* Debug Canvas Overlay */}
